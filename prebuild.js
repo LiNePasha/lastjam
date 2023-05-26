@@ -1,28 +1,18 @@
 const fs = require('fs')
 const path = require('path')
-const transformations = require('./transformations')
-const config = require('./netlify-cms-config')
+const remark = require('remark')
+const html = require('remark-html')
 
 // we'll look for any `.json` files in the `input` folder, then output to a single json file
-// [
-//   {
-//     inputDirectory: 'public/data/posts',
-//     outputFile: 'public/data/posts.json'
-//   }
-// ]
-const scanDirectories = config.collections
-  .filter(collection => collection.extension === 'json')
-  .map(collection => ({
-    inputDirectory: collection.folder,
-    outputFile: `${collection.folder}.json`,
-    sortBy: collection.sort_by
-  }))
+const scanDirectories = [
+  { inputDirectory: 'public/data/posts', outputFile: 'public/data/posts.json' }
+]
 
 console.log('BUILD JSON DATA')
 scanDirectories.forEach(processFiles)
 
 // finds all json files in directory, processes to markdown, updates original file, updates output file
-function processFiles({ inputDirectory, outputFile, sortBy }) {
+function processFiles({ inputDirectory, outputFile }) {
   const postsDirectory = path.join(process.cwd(), inputDirectory)
   const filenames = fs.readdirSync(postsDirectory)
   
@@ -37,7 +27,12 @@ function processFiles({ inputDirectory, outputFile, sortBy }) {
     const jsonData = JSON.parse(fileContents)
   
     // parse / transform any contents
-    transformations.transform(jsonData)
+    if (jsonData.body) {
+      jsonData.bodyHtml = (await remark().use(html).process(jsonData.body)).toString()
+    }
+    if (jsonData.date) {
+      jsonData.dateFormatted = (new Date(jsonData.date)).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    }
 
     // write transformations back to original file
     fs.writeFileSync(filePath, JSON.stringify(jsonData, null, 2))
@@ -46,10 +41,13 @@ function processFiles({ inputDirectory, outputFile, sortBy }) {
   })).then(results => {
     const posts = results.filter(Boolean)
 
+    // plump it up for performance testing
+    // do {
+    //   [...posts].map(post => posts.push(post))
+    // } while (posts.length < 5000)
+
     // sort
-    posts.sort({
-      date: (a, b) => new Date(b.date) - new Date(a.date),
-    }[sortBy] || Boolean)
+    posts.sort((a, b) => new Date(b.date) - new Date(a.date))
     
     const outputPath = path.join(process.cwd(), outputFile)
     fs.writeFileSync(outputPath, JSON.stringify(posts, null, 2))
